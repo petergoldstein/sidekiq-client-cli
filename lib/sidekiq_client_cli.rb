@@ -3,25 +3,40 @@ require 'cli'
 require_relative 'sidekiq_client_cli/version'
 
 class SidekiqClientCLI
-  COMMANDS = %w{push}
-  DEFAULT_CONFIG_PATH = "config/initializers/sidekiq.rb"
+  COMMANDS = %w(push)
+  DEFAULT_CONFIG_PATH = 'config/initializers/sidekiq.rb'
 
   attr_accessor :settings
 
   def parse
-    @settings = CLI.new do
-      option :config_path, :short => :c, :default => DEFAULT_CONFIG_PATH, :description => "Sidekiq client config file path"
-      option :queue, :short => :q, :description => "Queue to place job on"
-      option :retry, :short => :r, :cast => lambda { |r| SidekiqClientCLI.cast_retry_option(r) }, :description => "Retry option for job"
-      argument :command, :description => "'push' to push a job to the queue"
-      arguments :command_args, :required => false, :description => "command arguments"
-    end.parse! do |settings|
-      fail "Invalid command '#{settings.command}'. Available commands: #{COMMANDS.join(',').chomp(',')}" unless COMMANDS.include? settings.command
+    @settings = cli.parse! do |settings|
+      cmd = settings.command
+      fail invalid_command_message(cmd) unless COMMANDS.include?(cmd)
 
-      if settings.command == "push" && settings.command_args.empty?
-        fail "No Worker Classes to push"
+      if cmd == 'push' && settings.command_args.empty?
+        fail 'No Worker Classes to push'
       end
     end
+  end
+
+  def cli
+    CLI.new do
+      option :config_path, short: :c,
+                           default: DEFAULT_CONFIG_PATH,
+                           description: 'Sidekiq client config file path'
+      option :queue, short: :q, description: 'Queue to place job on'
+      option :retry, short: :r,
+                     cast: ->(r) { SidekiqClientCLI.cast_retry_option(r) },
+                     description: 'Retry option for job'
+      argument :command, description: "'push' to push a job to the queue"
+      arguments :command_args, required: false,
+                               description: 'command arguments'
+    end
+  end
+
+  def invalid_command_message(cmd)
+    "Invalid command '#{cmd}'.
+     Available commands: #{COMMANDS.join(',').chomp(',')}"
   end
 
   def self.cast_retry_option(retry_option)
@@ -32,19 +47,25 @@ class SidekiqClientCLI
 
   def run
     # load the config file
-    load settings.config_path if File.exists?(settings.config_path)
+    load settings.config_path if File.exist?(settings.config_path)
 
     # set queue or retry if they are not given
-    settings.queue ||= Sidekiq.default_worker_options['queue']
-    settings.retry = Sidekiq.default_worker_options['retry'] if settings.retry.nil?
+    default_settings!
 
-    self.send settings.command.to_sym
+    send settings.command.to_sym
+  end
+
+  # Set queue or retry if they are not given
+  def default_settings!
+    settings.queue ||= Sidekiq.default_worker_options['queue']
+    return unless settings.retry.nil?
+    settings.retry = Sidekiq.default_worker_options['retry']
   end
 
   # Returns true if all args can be pushed successfully.
   # Returns false if at least one exception occured.
   def push
-    settings.command_args.inject(true) do |success, arg|
+    settings.command_args.inject(true) do |_success, arg|
       push_argument arg
     end
   end
@@ -52,15 +73,20 @@ class SidekiqClientCLI
   private
 
   def push_argument(arg)
-    jid = Sidekiq::Client.push({ 'class' => arg,
-                                 'queue' => settings.queue,
-                                 'args'  => [],
-                                 'retry' => settings.retry })
-    p "Posted #{arg} to queue '#{settings.queue}', Job ID : #{jid}, Retry : #{settings.retry}"
+    jid = Sidekiq::Client.push('class' => arg,
+                               'queue' => settings.queue,
+                               'args'  => [],
+                               'retry' => settings.retry)
+    p push_message(arg, jid)
     true
   rescue StandardError => ex
     p "Failed to push to queue : #{ex.message}"
     false
   end
 
+  def push_message(arg, jid)
+    queue = settings.queue
+    retr = settings.retry
+    "Posted #{arg} to queue '#{queue}', Job ID : #{jid}, Retry : #{retr}"
+  end
 end
