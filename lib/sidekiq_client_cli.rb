@@ -25,9 +25,9 @@ class SidekiqClientCLI
   end
 
   def self.cast_retry_option(retry_option)
-    return true if !!retry_option.match(/^(true|t|yes|y)$/i)
-    return false if !!retry_option.match(/^(false|f|no|n|0)$/i)
-    return retry_option.to_i if !!retry_option.match(/^\d+$/)
+    return true if retry_option.match(/^(true|t|yes|y)$/i)
+    return false if retry_option.match(/^(false|f|no|n|0)$/i)
+    retry_option.match(/^\d+$/) ? retry_option.to_i : nil
   end
 
   def run
